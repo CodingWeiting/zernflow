@@ -21,8 +21,7 @@ import { useCallback, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Rocket, Loader2, History, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
-import type { Database, FlowStatus, Json } from "@/lib/types/database";
+import type { Database } from "@/lib/types/database";
 
 import { NodePalette } from "./node-palette";
 import { TriggerNode } from "./nodes/trigger-node";
@@ -78,7 +77,6 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
   const router = useRouter();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
-  const supabase = createClient();
 
   const initialNodes: Node[] = Array.isArray(flow.nodes)
     ? (flow.nodes as unknown as Node[])
@@ -188,50 +186,34 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
     [setNodes, setEdges]
   );
 
-  const saveFlow = useCallback(
-    async (status?: FlowStatus) => {
-      if (status === "published") {
-        setPublishing(true);
-      } else {
-        setSaving(true);
-      }
-
-      try {
-        const update: Database["public"]["Tables"]["flows"]["Update"] = {
+  const saveFlow = useCallback(async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/v1/flows/${flow.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           name: flowName,
-          nodes: nodes as unknown as Json,
-          edges: edges as unknown as Json,
-          updated_at: new Date().toISOString(),
-        };
+          nodes,
+          edges,
+        }),
+      });
 
-        if (status) {
-          update.status = status;
-          if (status === "published") {
-            update.published_at = new Date().toISOString();
-          }
-        }
-
-        const { error } = await supabase
-          .from("flows")
-          .update(update)
-          .eq("id", flow.id);
-
-        if (error) {
-          console.error("Failed to save flow:", error);
-          setSaveError("Failed to save");
-          setTimeout(() => setSaveError(null), 3000);
-          return;
-        }
-
-        setSaveError(null);
-        setLastSaved(new Date());
-      } finally {
-        setSaving(false);
-        setPublishing(false);
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        console.error("Failed to save flow:", errBody);
+        setSaveError("Failed to save");
+        setTimeout(() => setSaveError(null), 3000);
+        return;
       }
-    },
-    [flowName, nodes, edges, flow.id, supabase]
-  );
+
+      setSaveError(null);
+      setLastSaved(new Date());
+    } finally {
+      setSaving(false);
+      setPublishing(false);
+    }
+  }, [flowName, nodes, edges, flow.id]);
 
   const handleSave = useCallback(() => saveFlow(), [saveFlow]);
   const handlePublish = useCallback(async () => {
