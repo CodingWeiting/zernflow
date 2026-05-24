@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { syncTriggersForFlow } from "@/lib/flow-engine/sync-triggers";
 
 export async function POST(
   _request: NextRequest,
@@ -60,11 +61,11 @@ export async function POST(
     published_by: user.id,
   });
 
-  // Activate all triggers for this flow
-  await supabase
-    .from("triggers")
-    .update({ is_active: true })
-    .eq("flow_id", flowId);
+  // Rebuild triggers from the freshly published flow's nodes JSON.
+  // This is authoritative — overwrites any drift between editor state
+  // and the triggers table.
+  const flowNodes = Array.isArray(flow.nodes) ? flow.nodes : [];
+  await syncTriggersForFlow(supabase, flowId, flowNodes, true);
 
   return NextResponse.json({ ...flow, version: newVersion });
 }
