@@ -59,8 +59,10 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
     let cancelled = false;
     fetch("/api/v1/channels")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((body: { channels?: ChannelOption[] }) => {
-        if (!cancelled) setChannels(body.channels ?? []);
+      .then((body: ChannelOption[] | { channels?: ChannelOption[] }) => {
+        // API returns the array directly; tolerate wrapped shape too.
+        const list = Array.isArray(body) ? body : body?.channels ?? [];
+        if (!cancelled) setChannels(list);
       })
       .catch((err) => {
         if (!cancelled) console.error("Failed to load channels:", err);
