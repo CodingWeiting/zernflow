@@ -22,6 +22,7 @@ interface TriggerPanelData {
   keywords?: Keyword[];
   payload?: string;
   channelId?: string | null;
+  postIds?: string[];
   [key: string]: unknown;
 }
 
@@ -110,7 +111,30 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
     [data, keywords, onChange]
   );
 
+  // ── Post IDs (comment_keyword only) ──────────────────────────────────────
+  const postIds = data.postIds || [];
+  const [newPostId, setNewPostId] = useState("");
+
+  const addPostId = useCallback(() => {
+    const trimmed = newPostId.trim();
+    if (!trimmed) return;
+    if (postIds.includes(trimmed)) {
+      setNewPostId("");
+      return;
+    }
+    onChange({ ...data, postIds: [...postIds, trimmed] });
+    setNewPostId("");
+  }, [data, postIds, newPostId, onChange]);
+
+  const removePostId = useCallback(
+    (id: string) => {
+      onChange({ ...data, postIds: postIds.filter((p) => p !== id) });
+    },
+    [data, postIds, onChange]
+  );
+
   const showKeywords = triggerType === "keyword" || triggerType === "comment_keyword";
+  const showPostIds = triggerType === "comment_keyword";
   const showPayload = triggerType === "postback" || triggerType === "quick_reply";
 
   return (
@@ -258,6 +282,69 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
               Add keywords that will trigger this flow. Press Enter or click + to add.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Post ID whitelist (comment_keyword only) */}
+      {showPostIds && (
+        <div>
+          <label className="mb-2 block text-xs font-semibold text-foreground">
+            Restrict to specific posts (optional)
+          </label>
+
+          {postIds.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {postIds.map((id) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-mono text-foreground"
+                >
+                  {id.length > 24 ? `${id.slice(0, 12)}…${id.slice(-8)}` : id}
+                  <button
+                    type="button"
+                    onClick={() => removePostId(id)}
+                    className="rounded-full p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-muted-foreground"
+                    aria-label={`Remove ${id}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newPostId}
+              onChange={(e) => setNewPostId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addPostId();
+                }
+              }}
+              placeholder="Paste a post ID..."
+              className="flex-1 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <button
+              type="button"
+              onClick={addPostId}
+              disabled={!newPostId.trim()}
+              className="rounded-lg bg-emerald-500 p-2 text-white transition-colors hover:bg-emerald-600 disabled:opacity-40"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            {postIds.length === 0
+              ? "Leave empty to trigger on comments from any post. Add post IDs to limit the trigger to specific posts."
+              : `Triggers only on comments on the ${postIds.length} listed post${postIds.length === 1 ? "" : "s"}.`}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground/70">
+            Tip: post IDs come from the comment webhook (visible in your <code className="font-mono">comment_logs</code> table after the first comment).
+          </p>
         </div>
       )}
 
