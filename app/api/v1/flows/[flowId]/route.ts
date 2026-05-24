@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { syncTriggersForFlow } from "@/lib/flow-engine/sync-triggers";
 
 async function getWorkspaceId(supabase: Awaited<ReturnType<typeof createClient>>) {
   const {
@@ -69,6 +70,18 @@ export async function PUT(
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Mirror trigger-type nodes into the `triggers` table so the webhook
+  // router can find them. Inactive while the flow is draft; publish flips
+  // is_active to true.
+  if (body.nodes !== undefined) {
+    await syncTriggersForFlow(
+      supabase,
+      flowId,
+      body.nodes,
+      flow.status === "published"
+    );
+  }
 
   return NextResponse.json(flow);
 }
