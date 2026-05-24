@@ -97,7 +97,11 @@ export async function POST(request: NextRequest) {
 
 async function handleWebhook(request: NextRequest) {
   const body = await request.text();
-  const signature = request.headers.get("x-late-signature");
+  // Zernio (formerly Late) currently sends `x-late-signature`. If they rename
+  // the header in a future rebrand-cleanup, fall back to `x-zernio-signature`.
+  const signature =
+    request.headers.get("x-late-signature") ??
+    request.headers.get("x-zernio-signature");
 
   let payload: WebhookPayload;
   try {
