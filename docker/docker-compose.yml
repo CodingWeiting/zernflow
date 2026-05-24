@@ -50,6 +50,35 @@ services:
       - app
     restart: unless-stopped
 
+  # Comment-polling sidecar.
+  # Zernio currently doesn't push IG/FB comments via webhook (only via API),
+  # so we poll `/api/cron/comments` every 15s. Interval can be tuned via
+  # the COMMENT_POLL_INTERVAL env var in .env.local.
+  comment-poller:
+    image: curlimages/curl:latest
+    container_name: zernflow-fork-comment-poller
+    env_file:
+      - ../.env.local
+    environment:
+      # Default 15s; override in .env.local with COMMENT_POLL_INTERVAL=30
+      - COMMENT_POLL_INTERVAL=${COMMENT_POLL_INTERVAL:-15}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sleep 10  # wait for app to be ready on cold start
+        while true; do
+          curl -s -X POST \
+            -H "Authorization: Bearer $$CRON_SECRET" \
+            http://app:3000/api/cron/comments \
+            -o /dev/null -w "[%{time_total}s] cron POST -> %{http_code}\n" \
+            || echo "[poll] curl failed"
+          sleep $$COMMENT_POLL_INTERVAL
+        done
+    depends_on:
+      - app
+    restart: unless-stopped
+
 volumes:
   zernflow_node_modules:
   zernflow_next_cache:
