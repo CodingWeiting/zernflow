@@ -35,6 +35,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Claude / MCP (含 Supabase PAT,絕不能 commit)
+.mcp.json
+.claude/settings.local.json
+npm-install.log
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

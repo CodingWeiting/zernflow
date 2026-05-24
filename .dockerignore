@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.env
+.env*.local
+.mcp.json
+.claude
+.vercel
+*.log
+npm-install.log
+Dockerfile*
+docker-compose*.yml
+README.md
+LICENSE
