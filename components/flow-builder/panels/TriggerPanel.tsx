@@ -17,6 +17,16 @@ interface ChannelOption {
   display_name: string | null;
 }
 
+interface PostOption {
+  id: string;
+  platform: string;
+  content: string | null;
+  picture: string | null;
+  permalink: string | null;
+  createdTime: string | null;
+  commentCount: number;
+}
+
 interface TriggerPanelData {
   triggerType?: string;
   keywords?: Keyword[];
@@ -116,6 +126,19 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
   // ── Post IDs (comment_keyword only) ──────────────────────────────────────
   const postIds = data.postIds || [];
   const [newPostId, setNewPostId] = useState("");
+  const [posts, setPosts] = useState<PostOption[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [postsError, setPostsError] = useState<string | null>(null);
+  const [showManualInput, setShowManualInput] = useState(false);
+
+  const togglePostId = useCallback(
+    (id: string) => {
+      const has = postIds.includes(id);
+      const next = has ? postIds.filter((p) => p !== id) : [...postIds, id];
+      onChange({ ...data, postIds: next });
+    },
+    [data, postIds, onChange]
+  );
 
   const addPostId = useCallback(() => {
     const trimmed = newPostId.trim();
@@ -138,6 +161,45 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
   const showKeywords = triggerType === "keyword" || triggerType === "comment_keyword";
   const showPostIds = triggerType === "comment_keyword";
   const showPayload = triggerType === "postback" || triggerType === "quick_reply";
+
+  // Fetch posts from Zernio when channel + comment_keyword is selected.
+  const channelId = data.channelId;
+  useEffect(() => {
+    if (!showPostIds || !channelId) {
+      setPosts([]);
+      setPostsError(null);
+      return;
+    }
+    let cancelled = false;
+    setPostsLoading(true);
+    setPostsError(null);
+    fetch(`/api/v1/channels/${channelId}/posts`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error(errBody.error || `HTTP ${r.status}`);
+        }
+        return r.json();
+      })
+      .then((body: { posts?: PostOption[] }) => {
+        if (!cancelled) setPosts(body.posts ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to load posts:", err);
+          setPostsError(err.message || "Failed to load posts");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPostsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, showPostIds]);
+
+  // Post IDs that are selected but not in the fetched list (manually-added).
+  const orphanIds = postIds.filter((id) => !posts.some((p) => p.id === id));
 
   return (
     <div className="space-y-5">
@@ -287,65 +349,153 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
         </div>
       )}
 
-      {/* Post ID whitelist (comment_keyword only) */}
+      {/* Post whitelist (comment_keyword only) */}
       {showPostIds && (
         <div>
           <label className="mb-2 block text-xs font-semibold text-foreground">
             Restrict to specific posts (optional)
           </label>
 
-          {postIds.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {postIds.map((id) => (
-                <span
-                  key={id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-mono text-foreground"
-                >
-                  {id.length > 24 ? `${id.slice(0, 12)}…${id.slice(-8)}` : id}
-                  <button
-                    type="button"
-                    onClick={() => removePostId(id)}
-                    className="rounded-full p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-muted-foreground"
-                    aria-label={`Remove ${id}`}
+          {!channelId && (
+            <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+              Pick a channel above to load posts.
+            </p>
+          )}
+
+          {channelId && postsLoading && (
+            <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+              Loading posts from Zernio…
+            </p>
+          )}
+
+          {channelId && !postsLoading && postsError && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-3 text-xs text-red-600">
+              {postsError}
+            </p>
+          )}
+
+          {channelId && !postsLoading && !postsError && posts.length === 0 && (
+            <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+              No posts with comment activity yet. Add manually below or wait for the first comment to arrive.
+            </p>
+          )}
+
+          {channelId && posts.length > 0 && (
+            <ul className="mb-3 max-h-72 space-y-1 overflow-y-auto rounded-lg border border-border bg-card p-1">
+              {posts.map((post) => {
+                const checked = postIds.includes(post.id);
+                const caption = post.content || "(no caption)";
+                return (
+                  <li key={post.id}>
+                    <label
+                      className={cn(
+                        "flex cursor-pointer items-start gap-2.5 rounded-md p-2 transition-colors",
+                        checked ? "bg-emerald-50" : "hover:bg-accent"
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePostId(post.id)}
+                        className="mt-1 h-4 w-4 rounded border-input text-emerald-500 focus:ring-emerald-500"
+                      />
+                      {post.picture ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={post.picture}
+                          alt=""
+                          className="h-12 w-12 flex-shrink-0 rounded object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+                          —
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-xs text-foreground">
+                          {caption}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          💬 {post.commentCount}
+                          {post.createdTime
+                            ? ` · ${new Date(post.createdTime).toLocaleDateString()}`
+                            : ""}
+                        </p>
+                      </div>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {/* Orphan IDs: selected but not in fetched list (e.g. manually added) */}
+          {orphanIds.length > 0 && (
+            <div className="mb-3">
+              <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Manually added
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {orphanIds.map((id) => (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-mono text-foreground"
                   >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
+                    {id.length > 24 ? `${id.slice(0, 12)}…${id.slice(-8)}` : id}
+                    <button
+                      type="button"
+                      onClick={() => removePostId(id)}
+                      className="rounded-full p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-muted-foreground"
+                      aria-label={`Remove ${id}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={newPostId}
-              onChange={(e) => setNewPostId(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addPostId();
-                }
-              }}
-              placeholder="Paste a post ID..."
-              className="flex-1 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
+          {/* Manual input (collapsed by default) */}
+          {!showManualInput ? (
             <button
               type="button"
-              onClick={addPostId}
-              disabled={!newPostId.trim()}
-              className="rounded-lg bg-emerald-500 p-2 text-white transition-colors hover:bg-emerald-600 disabled:opacity-40"
+              onClick={() => setShowManualInput(true)}
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             >
-              <Plus className="h-4 w-4" />
+              + Add a post ID manually
             </button>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newPostId}
+                onChange={(e) => setNewPostId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addPostId();
+                  }
+                }}
+                placeholder="Paste a post ID…"
+                autoFocus
+                className="flex-1 rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={addPostId}
+                disabled={!newPostId.trim()}
+                className="rounded-lg bg-emerald-500 p-2 text-white transition-colors hover:bg-emerald-600 disabled:opacity-40"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          )}
 
-          <p className="mt-1.5 text-xs text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             {postIds.length === 0
-              ? "Leave empty to trigger on comments from any post. Add post IDs to limit the trigger to specific posts."
-              : `Triggers only on comments on the ${postIds.length} listed post${postIds.length === 1 ? "" : "s"}.`}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground/70">
-            Tip: post IDs come from the comment webhook (visible in your <code className="font-mono">comment_logs</code> table after the first comment).
+              ? "Leave empty to trigger on comments from any post."
+              : `Triggers only on the ${postIds.length} selected post${postIds.length === 1 ? "" : "s"}.`}
           </p>
         </div>
       )}

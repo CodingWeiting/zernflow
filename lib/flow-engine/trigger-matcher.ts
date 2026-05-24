@@ -146,9 +146,15 @@ export async function matchCommentTrigger(
   for (const trigger of triggers) {
     const config = trigger.config as CommentTriggerConfig;
 
-    // Post whitelist: if configured, comment's post must be in it.
-    if (config.postIds?.length && !config.postIds.includes(comment.postId)) {
-      continue;
+    // Post whitelist. Check against both Zernio internal postId AND the
+    // native platform post ID — the picker UI stores whichever Zernio's
+    // listInboxComments returned (currently the platform ID), but older
+    // entries or manual additions may use the internal ID.
+    if (config.postIds?.length) {
+      const matchesPost =
+        config.postIds.includes(comment.postId) ||
+        config.postIds.includes(comment.platformPostId);
+      if (!matchesPost) continue;
     }
 
     if (!config.keywords?.length) continue;
