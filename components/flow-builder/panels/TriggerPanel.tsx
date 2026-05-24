@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TriggerType } from "@/lib/types/database";
@@ -10,10 +10,18 @@ interface Keyword {
   matchType: "exact" | "contains" | "startsWith";
 }
 
+interface ChannelOption {
+  id: string;
+  platform: string;
+  username: string | null;
+  display_name: string | null;
+}
+
 interface TriggerPanelData {
   triggerType?: string;
   keywords?: Keyword[];
   payload?: string;
+  channelId?: string | null;
   [key: string]: unknown;
 }
 
@@ -43,10 +51,37 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
   const keywords = data.keywords || [];
   const [newKeyword, setNewKeyword] = useState("");
   const [newMatchType, setNewMatchType] = useState<"exact" | "contains" | "startsWith">("contains");
+  const [channels, setChannels] = useState<ChannelOption[]>([]);
+  const [channelsLoading, setChannelsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/v1/channels")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((body: { channels?: ChannelOption[] }) => {
+        if (!cancelled) setChannels(body.channels ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled) console.error("Failed to load channels:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setChannelsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleTriggerTypeChange = useCallback(
     (type: string) => {
       onChange({ ...data, triggerType: type });
+    },
+    [data, onChange]
+  );
+
+  const handleChannelChange = useCallback(
+    (channelId: string) => {
+      onChange({ ...data, channelId: channelId || null });
     },
     [data, onChange]
   );
@@ -80,6 +115,32 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
 
   return (
     <div className="space-y-5">
+      {/* Channel scope */}
+      <div>
+        <label className="mb-2 block text-xs font-semibold text-foreground">
+          Channel
+        </label>
+        <select
+          value={data.channelId ?? ""}
+          onChange={(e) => handleChannelChange(e.target.value)}
+          disabled={channelsLoading}
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
+        >
+          <option value="">
+            {channelsLoading ? "Loading channels…" : "All channels (any connected)"}
+          </option>
+          {channels.map((c) => (
+            <option key={c.id} value={c.id}>
+              {(c.display_name || c.username || c.id) + ` · ${c.platform}`}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Which channel this trigger fires on. Leave as &ldquo;All channels&rdquo; for
+          a global trigger.
+        </p>
+      </div>
+
       {/* Trigger Type */}
       <div>
         <label className="mb-2 block text-xs font-semibold text-foreground">
