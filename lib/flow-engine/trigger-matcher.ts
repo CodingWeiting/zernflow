@@ -8,6 +8,27 @@ interface IncomingMessage {
   sender?: { id: string };
 }
 
+/** Comment from Zernio's `comment.received` webhook, trimmed to matching needs. */
+export interface IncomingComment {
+  text: string;
+  /** Zernio internal post ID */
+  postId: string;
+  /** Platform's native post ID (Meta / IG / FB) */
+  platformPostId: string;
+}
+
+/** Config stored in `triggers.config` for `comment_keyword` triggers. */
+export interface CommentTriggerConfig {
+  keywords?: Array<
+    | string
+    | { value: string; matchType?: "exact" | "contains" | "startsWith" }
+  >;
+  /** Whitelist of Zernio post IDs. Empty / missing = match any post. */
+  postIds?: string[];
+  /** Optional public reply text the flow node can read. */
+  replyText?: string;
+}
+
 type Trigger = Database["public"]["Tables"]["triggers"]["Row"];
 
 export async function matchTrigger(
@@ -92,4 +113,56 @@ export async function matchTrigger(
   // 5. Default trigger
   const defaultTrigger = triggers.find((t) => t.type === "default");
   return defaultTrigger || null;
+}
+
+/**
+ * Match an incoming comment against `comment_keyword` triggers for a channel.
+ *
+ * Filtering order:
+ *   1. Trigger.config.postIds whitelist (if set, comment.postId must be in it)
+ *   2. Keyword match (exact / contains / startsWith)
+ *
+ * Returns the highest-priority matching trigger, or null.
+ */
+export async function matchCommentTrigger(
+  supabase: SupabaseClient<Database>,
+  channelId: string,
+  comment: IncomingComment
+): Promise<Trigger | null> {
+  const text = comment.text.toLowerCase().trim();
+  if (!text) return null;
+
+  const { data: triggers } = await supabase
+    .from("triggers")
+    .select("*, flows!inner(status)")
+    .or(`channel_id.eq.${channelId},channel_id.is.null`)
+    .eq("type", "comment_keyword")
+    .eq("is_active", true)
+    .eq("flows.status", "published")
+    .order("priority", { ascending: false });
+
+  if (!triggers || triggers.length === 0) return null;
+
+  for (const trigger of triggers) {
+    const config = trigger.config as CommentTriggerConfig;
+
+    // Post whitelist: if configured, comment's post must be in it.
+    if (config.postIds?.length && !config.postIds.includes(comment.postId)) {
+      continue;
+    }
+
+    if (!config.keywords?.length) continue;
+
+    for (const kw of config.keywords) {
+      const keyword = (typeof kw === "string" ? kw : kw.value).toLowerCase();
+      const matchType =
+        (typeof kw === "object" && kw.matchType) || "contains";
+
+      if (matchType === "exact" && text === keyword) return trigger;
+      if (matchType === "contains" && text.includes(keyword)) return trigger;
+      if (matchType === "startsWith" && text.startsWith(keyword)) return trigger;
+    }
+  }
+
+  return null;
 }
