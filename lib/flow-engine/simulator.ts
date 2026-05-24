@@ -116,16 +116,30 @@ export function simulateFlow(
   // Simulate trigger matching
   const triggerData = triggerNode.data as Record<string, unknown>;
   const triggerType = (triggerData.triggerType as string) || "keyword";
-  const keywords = (triggerData.keywords as string[]) || [];
+  type RawKeyword =
+    | string
+    | { value: string; matchType?: "exact" | "contains" | "startsWith" };
+  const keywords = (triggerData.keywords as RawKeyword[]) || [];
+  const keywordValues = keywords.map((k) =>
+    typeof k === "string" ? k : k.value
+  );
   let triggerMatched = false;
 
-  if (triggerType === "keyword") {
+  // Keyword + comment_keyword share the same matching logic in the simulator.
+  // The post_id whitelist isn't simulated (the user hasn't typed a fake
+  // post ID into the simulator — keep it scoped to keyword/message tests).
+  if (triggerType === "keyword" || triggerType === "comment_keyword") {
     const msg = config.incomingMessage.toLowerCase();
     triggerMatched =
       keywords.length === 0 ||
       keywords.some((k) => {
-        const kw = typeof k === "string" ? k : (k as { value: string }).value;
-        return msg.includes(kw.toLowerCase());
+        const kw = typeof k === "string" ? k : k.value;
+        const matchType =
+          (typeof k === "object" && k.matchType) || "contains";
+        const lower = kw.toLowerCase();
+        if (matchType === "exact") return msg === lower;
+        if (matchType === "startsWith") return msg.startsWith(lower);
+        return msg.includes(lower);
       });
   } else if (triggerType === "welcome" || triggerType === "default") {
     triggerMatched = true;
@@ -139,13 +153,13 @@ export function simulateFlow(
       type: "trigger",
       matched: triggerMatched,
       triggerType,
-      keywords: keywords.length > 0 ? keywords : undefined,
+      keywords: keywords.length > 0 ? keywordValues : undefined,
     },
   });
 
   if (!triggerMatched) {
     errors.push(
-      `Trigger did not match. Keywords: [${keywords.join(", ")}], Message: "${config.incomingMessage}"`
+      `Trigger did not match. Keywords: [${keywordValues.join(", ")}], Message: "${config.incomingMessage}"`
     );
     return { steps, errors, completed: false };
   }
