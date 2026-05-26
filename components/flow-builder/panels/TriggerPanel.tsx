@@ -51,7 +51,7 @@ const triggerTypes: Array<{ value: TriggerType; label: string; description: stri
 ];
 
 const matchTypes: Array<{ value: "exact" | "contains" | "startsWith"; label: string }> = [
-  { value: "exact", label: "Exact match" },
+  { value: "exact", label: "Exact" },
   { value: "contains", label: "Contains" },
   { value: "startsWith", label: "Starts with" },
 ];
@@ -275,9 +275,9 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
               {keywords.map((keyword, index) => (
                 <div
                   key={index}
-                  className="flex items-center gap-2 rounded-lg border border-border bg-card p-2"
+                  className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-lg border border-border bg-card p-2"
                 >
-                  <span className="flex-1 truncate text-sm text-foreground">
+                  <span className="min-w-0 truncate text-sm text-foreground">
                     {keyword.value}
                   </span>
                   <select
@@ -305,8 +305,9 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
             </div>
           )}
 
-          {/* Add new keyword */}
-          <div className="flex items-center gap-2">
+          {/* Add new keyword — grid keeps select + button at fixed width so
+              a long keyword can't push them off the side of the panel. */}
+          <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
             <input
               type="text"
               value={newKeyword}
@@ -318,7 +319,7 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
                 }
               }}
               placeholder="Enter keyword..."
-              className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="min-w-0 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
             <select
               value={newMatchType}
