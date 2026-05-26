@@ -217,18 +217,39 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
 
   const handleSave = useCallback(() => saveFlow(), [saveFlow]);
 
-  // ── Auto-save: debounced 1.5s after any edit ─────────────────────────────
-  // We skip the first effect run (which fires on mount with initial state)
-  // because that's not a user edit — saving immediately would mark the flow
-  // as "just saved" right after page load. After that, any change to nodes,
-  // edges, or flowName resets a 1.5s timer; when it fires we call saveFlow.
+  // ── Auto-save: debounced 1.5s after any *substantive* edit ───────────────
+  // ReactFlow mutates the node array on every selection toggle and during
+  // drags (it writes `selected: true/false` and `dragging: true/false`),
+  // which would otherwise fire auto-save on every click. We compute a
+  // content hash that ignores those runtime-only fields, and only save when
+  // the hash actually changes. The first hash establishes a baseline so
+  // the initial mount doesn't trigger a no-op write.
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skippedInitialRef = useRef(false);
+  const lastContentRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!skippedInitialRef.current) {
-      skippedInitialRef.current = true;
+    const content = JSON.stringify({
+      name: flowName,
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        type: n.type,
+        position: n.position,
+        data: n.data,
+      })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+      })),
+    });
+    if (lastContentRef.current === null) {
+      lastContentRef.current = content;
       return;
     }
+    if (lastContentRef.current === content) return;
+    lastContentRef.current = content;
+
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => {
       saveFlow();
