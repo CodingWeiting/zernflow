@@ -60,8 +60,9 @@ services:
     env_file:
       - ../.env.local
     environment:
-      # Default 15s; override in .env.local with COMMENT_POLL_INTERVAL=30
-      - COMMENT_POLL_INTERVAL=${COMMENT_POLL_INTERVAL:-15}
+      # Default 5s for near-realtime feel; override in .env.local with
+      # COMMENT_POLL_INTERVAL=15 if you hit Zernio rate limits.
+      - COMMENT_POLL_INTERVAL=${COMMENT_POLL_INTERVAL:-5}
     entrypoint:
       - sh
       - -c
