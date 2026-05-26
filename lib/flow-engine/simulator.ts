@@ -102,8 +102,21 @@ export function simulateFlow(
 ): SimulationResult {
   const steps: SimulationStep[] = [];
   const errors: string[] = [];
+  // Mock variables for simulator runs. The simulator doesn't know what
+  // platform / commenter actually exists, so we fabricate plausible values
+  // — purpose is to give users an idea of how the rendered message looks
+  // with substitution applied, not to test live API behaviour.
+  const mockCommenterHandle = "test_user";
   const variables: Record<string, string> = {
     message: config.incomingMessage,
+    comment: config.incomingMessage,
+    comment_text: config.incomingMessage,
+    commenter: mockCommenterHandle,
+    commenter_username: mockCommenterHandle,
+    commenter_name: mockCommenterHandle,
+    mention: `@${mockCommenterHandle} `,
+    post_id: "sample_post_id",
+    platform_post_id: "sample_platform_post_id",
   };
 
   // 1. Find trigger node

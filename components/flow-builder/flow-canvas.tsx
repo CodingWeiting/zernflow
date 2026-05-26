@@ -17,7 +17,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { useCallback, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Rocket, Loader2, History, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -216,6 +216,27 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
   }, [flowName, nodes, edges, flow.id]);
 
   const handleSave = useCallback(() => saveFlow(), [saveFlow]);
+
+  // ── Auto-save: debounced 1.5s after any edit ─────────────────────────────
+  // We skip the first effect run (which fires on mount with initial state)
+  // because that's not a user edit — saving immediately would mark the flow
+  // as "just saved" right after page load. After that, any change to nodes,
+  // edges, or flowName resets a 1.5s timer; when it fires we call saveFlow.
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skippedInitialRef = useRef(false);
+  useEffect(() => {
+    if (!skippedInitialRef.current) {
+      skippedInitialRef.current = true;
+      return;
+    }
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      saveFlow();
+    }, 1500);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [nodes, edges, flowName, saveFlow]);
   const handlePublish = useCallback(async () => {
     setPublishing(true);
     try {
@@ -237,7 +258,26 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
     } finally {
       setPublishing(false);
     }
-  }, [saveFlow, flow.id]);
+  }, [saveFlow, flow.id, router]);
+
+  const handleUnpublish = useCallback(async () => {
+    setPublishing(true);
+    try {
+      const res = await fetch(`/api/v1/flows/${flow.id}/unpublish`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        console.error("Failed to unpublish flow");
+        setSaveError("Failed to unpublish");
+        setTimeout(() => setSaveError(null), 3000);
+        return;
+      }
+      setSaveError(null);
+      router.refresh();
+    } finally {
+      setPublishing(false);
+    }
+  }, [flow.id, router]);
 
   return (
     <div className="flex h-full flex-col">
@@ -332,18 +372,33 @@ function FlowCanvasInner({ flow }: FlowCanvasProps) {
             )}
             Save
           </button>
-          <button
-            onClick={handlePublish}
-            disabled={publishing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
-            {publishing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Rocket className="h-3.5 w-3.5" />
-            )}
-            Publish
-          </button>
+          {flow.status === "published" ? (
+            <button
+              onClick={handleUnpublish}
+              disabled={publishing}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-500/20 transition-colors disabled:opacity-50 dark:text-amber-400"
+            >
+              {publishing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Rocket className="h-3.5 w-3.5 rotate-180" />
+              )}
+              Unpublish
+            </button>
+          ) : (
+            <button
+              onClick={handlePublish}
+              disabled={publishing}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {publishing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Rocket className="h-3.5 w-3.5" />
+              )}
+              Publish
+            </button>
+          )}
         </div>
       </div>
 

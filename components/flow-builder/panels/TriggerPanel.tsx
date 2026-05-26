@@ -241,7 +241,7 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
               className={cn(
                 "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
                 triggerType === t.value
-                  ? "border-emerald-500 bg-emerald-50"
+                  ? "border-emerald-500 bg-emerald-500/10"
                   : "border-border bg-card hover:border-input"
               )}
             >
@@ -390,7 +390,7 @@ export function TriggerPanel({ data: rawData, onChange }: TriggerPanelProps) {
                     <label
                       className={cn(
                         "flex cursor-pointer items-start gap-2.5 rounded-md p-2 transition-colors",
-                        checked ? "bg-emerald-50" : "hover:bg-accent"
+                        checked ? "bg-emerald-500/10" : "hover:bg-accent"
                       )}
                     >
                       <input

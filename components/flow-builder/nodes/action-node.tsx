@@ -135,10 +135,19 @@ function getSummary(nodeData: ActionNodeProps): string | null {
         ? `Wait up to ${nodeData.timeout} ${nodeData.timeoutUnit || "minutes"}`
         : null;
     case "commentReply":
-    case "privateReply":
-      return nodeData.text
-        ? `"${nodeData.text.length > 40 ? nodeData.text.slice(0, 40) + "…" : nodeData.text}"`
-        : null;
+    case "privateReply": {
+      if (!nodeData.text) return null;
+      // Preview with sample mock values so canvas cards show
+      // `Reply: "Thanks @user! ..."` instead of raw `{{mention}}` tokens.
+      const previewed = nodeData.text
+        .replaceAll("{{mention}}", "@username ")
+        .replaceAll("{{commenter}}", "username")
+        .replaceAll("{{commenter_username}}", "username")
+        .replaceAll("{{commenter_name}}", "username")
+        .replaceAll("{{comment}}", "(comment)")
+        .replaceAll("{{comment_text}}", "(comment)");
+      return `"${previewed.length > 40 ? previewed.slice(0, 40) + "…" : previewed}"`;
+    }
     default:
       return null;
   }
