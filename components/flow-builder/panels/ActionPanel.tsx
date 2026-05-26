@@ -5,6 +5,7 @@ import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NodeType } from "@/lib/types/database";
 import { EnrollSequencePanel } from "./EnrollSequencePanel";
+import { TokenTextarea } from "../token-textarea";
 
 interface ActionPanelData {
   actionType?: NodeType;
@@ -25,6 +26,8 @@ interface ActionPanelData {
   timeoutUnit?: string;
   confirmed?: boolean;
   sequenceId?: string;
+  // CommentReply
+  text?: string;
   [key: string]: unknown;
 }
 
@@ -63,6 +66,8 @@ export function ActionPanel({ data: rawData, onChange }: ActionPanelProps) {
       return <SmartDelayConfig data={data} onChange={onChange} />;
     case "enrollSequence":
       return <EnrollSequencePanel data={rawData} onChange={onChange} />;
+    case "commentReply":
+      return <CommentReplyConfig data={data} onChange={onChange} />;
     default:
       return (
         <p className="text-sm text-muted-foreground">
@@ -70,6 +75,55 @@ export function ActionPanel({ data: rawData, onChange }: ActionPanelProps) {
         </p>
       );
   }
+}
+
+/* ───────── Comment Reply (public reply to the comment that triggered the flow) ───────── */
+// The @mention chip inserts a SINGLE atomic token `{{mention}}` rather
+// than the raw `@{{commenter}} ` pattern. The processor expands {{mention}}
+// to `@<username> ` (with leading @ and trailing space baked in) so users
+// can't accidentally break the mention by deleting whitespace between the
+// handle and the next word — the token is one unit in the textarea.
+const COMMENT_REPLY_VARS = [
+  {
+    token: "mention",
+    label: "@username",
+    hint: "Atomic mention of the commenter — expands to '@username ' with leading @ and trailing space baked in, so Meta correctly links the handle no matter what you type after.",
+  },
+  {
+    token: "comment",
+    label: "comment",
+    hint: "The exact text the user commented",
+  },
+];
+
+function CommentReplyConfig({ data, onChange }: ActionSubPanelProps) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-2 block text-xs font-semibold text-foreground">
+          Public reply text
+        </label>
+        <TokenTextarea
+          value={data.text || ""}
+          onChange={(text) => onChange({ ...data, text })}
+          tokens={COMMENT_REPLY_VARS}
+          placeholder="e.g. Thanks @mention check your DMs 💌"
+          rows={3}
+        />
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Click a chip above to insert it at the cursor. Posted as a public
+          reply to the comment thread that triggered this flow.
+        </p>
+      </div>
+
+      <p className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        Typical placement:{" "}
+        <strong>Trigger → Send Message → Comment Reply</strong>. Send the DM
+        first, then publicly acknowledge so other viewers see the bot is
+        active. Only runs when the flow was triggered from a comment.
+      </p>
+    </div>
+  );
 }
 
 /* ───────── Tag Config ───────── */

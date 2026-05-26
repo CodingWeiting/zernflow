@@ -11,6 +11,7 @@ import {
   Shuffle,
   Hourglass,
   Cog,
+  Reply,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NodeType } from "@/lib/types/database";
@@ -29,6 +30,8 @@ export interface ActionNodeProps {
   paths?: Array<{ name: string; weight: number }>;
   timeout?: number;
   timeoutUnit?: string;
+  // CommentReply
+  text?: string;
 }
 
 const actionConfig: Record<
@@ -76,14 +79,14 @@ const actionConfig: Record<
     color: "bg-gray-500",
   },
   commentReply: {
-    icon: Cog,
+    icon: Reply,
     label: "Comment Reply",
-    color: "bg-gray-500",
+    color: "bg-sky-600",
   },
   privateReply: {
-    icon: Cog,
+    icon: Reply,
     label: "Private Reply",
-    color: "bg-gray-500",
+    color: "bg-sky-600",
   },
   abSplit: {
     icon: Shuffle,
@@ -130,6 +133,11 @@ function getSummary(nodeData: ActionNodeProps): string | null {
     case "smartDelay":
       return nodeData.timeout
         ? `Wait up to ${nodeData.timeout} ${nodeData.timeoutUnit || "minutes"}`
+        : null;
+    case "commentReply":
+    case "privateReply":
+      return nodeData.text
+        ? `"${nodeData.text.length > 40 ? nodeData.text.slice(0, 40) + "…" : nodeData.text}"`
         : null;
     default:
       return null;

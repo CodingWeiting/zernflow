@@ -79,6 +79,13 @@ export function SendMessagePanel({ data: rawData, onChange }: SendMessagePanelPr
 
   return (
     <div className="space-y-4">
+      <p className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <strong>For comment-triggered flows:</strong> only the first
+        message&apos;s text + image are sent (via Meta&apos;s private-reply
+        API). Buttons, quick replies, and carousels work in DM-triggered
+        flows or after the contact replies to your first DM.
+      </p>
+
       {messages.map((message, msgIndex) => (
         <MessageEditor
           key={msgIndex}
