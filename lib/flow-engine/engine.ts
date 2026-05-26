@@ -254,7 +254,15 @@ async function executeNode(
   context: FlowExecutionContext,
   sessionId: string
 ): Promise<string | void> {
-  switch (node.type) {
+  // The node-palette drops every action sub-type with `type: "action"` (so
+  // ReactFlow renders them via the single ActionNode component). The engine
+  // dispatches on the semantic kind, so unwrap action nodes to their
+  // actionType. Without this, addTag / commentReply / etc. silently no-op.
+  const effectiveType =
+    node.type === "action"
+      ? (node.data as { actionType?: string }).actionType ?? "action"
+      : node.type;
+  switch (effectiveType) {
     case "sendMessage":
       return executeSendMessage(supabase, node.data as SendMessageNodeData, context);
     case "condition":
@@ -274,7 +282,7 @@ async function executeNode(
       return executeHumanTakeover(supabase, context, sessionId);
     case "subscribe":
     case "unsubscribe":
-      return executeSubscription(supabase, node.type, context);
+      return executeSubscription(supabase, effectiveType, context);
     case "commentReply":
       return executeCommentReply(supabase, node.data as CommentReplyNodeData, context);
     case "privateReply":
@@ -329,7 +337,10 @@ async function executeSendMessage(
     }
   }
 
-  // Resolve late_conversation_id from conversation if not in context
+  // Resolve late_conversation_id from conversation if not in context.
+  // For comment-triggered flows the contact has no prior DM, so the
+  // conversation row exists in our DB but has late_conversation_id=null —
+  // fall back to Meta's "private reply to comment" API in that case.
   let lateConversationId = context.lateConversationId;
   if (!lateConversationId) {
     const { data: conversation } = await supabase
@@ -337,12 +348,20 @@ async function executeSendMessage(
       .select("late_conversation_id")
       .eq("id", context.conversationId)
       .single();
+    lateConversationId = conversation?.late_conversation_id ?? null;
+  }
 
-    if (!conversation?.late_conversation_id) {
-      console.error("No late_conversation_id found for conversation:", context.conversationId);
-      return;
-    }
-    lateConversationId = conversation.late_conversation_id;
+  const commentId = context.variables?.comment_id;
+  const postId = context.variables?.post_id;
+  const isCommentContext = !lateConversationId && !!commentId && !!postId;
+
+  if (!lateConversationId && !isCommentContext) {
+    // Neither a DM conversation nor a comment context to fall back on.
+    console.error(
+      "executeSendMessage: no conversation and no comment context, dropping message",
+      { conversationId: context.conversationId }
+    );
+    return;
   }
 
   for (const msg of data.messages) {
@@ -350,34 +369,42 @@ async function executeSendMessage(
     const text = interpolateVariables(adapted.text, context.variables || {});
 
     try {
-      // Send via Zernio REST API
       const attachments = adapted.imageUrl
         ? [{ type: "image", url: adapted.imageUrl }]
         : undefined;
 
-      // Build the API body with rich messaging fields
-      const body: Record<string, unknown> = {
-        accountId: lateAccountId,
-        message: text,
-      };
+      let platformMessageId: string | null = null;
 
-      if (adapted.buttons?.length) {
-        body.buttons = adapted.buttons;
-      }
-      if (adapted.quickReplies?.length) {
-        body.quickReplies = adapted.quickReplies;
-      }
-      if (adapted.template) {
-        body.template = adapted.template;
-      }
-      if (adapted.replyMarkup) {
-        body.replyMarkup = adapted.replyMarkup;
-      }
+      if (isCommentContext) {
+        // ── Comment context: use Meta's "private reply to comment" API.
+        // The API only accepts plain text — buttons, quick replies,
+        // carousels, and images are silently dropped. To send rich content
+        // chain a follow-up Send Message after the user replies to this DM
+        // (a real conversation will then exist).
+        if (!commentId || !postId) continue; // narrowed by isCommentContext but TS doesn't see it
+        await zernio.comments.sendPrivateReplyToComment({
+          path: { postId, commentId },
+          body: { accountId: lateAccountId, message: text },
+        });
+      } else {
+        // ── DM context: full rich messaging via inbox message API.
+        const body: Record<string, unknown> = {
+          accountId: lateAccountId,
+          message: text,
+        };
+        if (adapted.buttons?.length) body.buttons = adapted.buttons;
+        if (adapted.quickReplies?.length) body.quickReplies = adapted.quickReplies;
+        if (adapted.template) body.template = adapted.template;
+        if (adapted.replyMarkup) body.replyMarkup = adapted.replyMarkup;
 
-      const response = await zernio.messages.sendInboxMessage({
-        path: { conversationId: lateConversationId },
-        body: body as Parameters<typeof zernio.messages.sendInboxMessage>[0]["body"],
-      });
+        const response = await zernio.messages.sendInboxMessage({
+          path: { conversationId: lateConversationId! },
+          body: body as Parameters<
+            typeof zernio.messages.sendInboxMessage
+          >[0]["body"],
+        });
+        platformMessageId = response.data?.data?.messageId || null;
+      }
 
       // Store outbound message
       await supabase.from("messages").insert({
@@ -387,7 +414,7 @@ async function executeSendMessage(
         attachments: attachments || null,
         sent_by_flow_id: context.flowId,
         sent_by_node_id: null,
-        platform_message_id: response.data?.data?.messageId || null,
+        platform_message_id: platformMessageId,
         status: "sent",
       });
 
@@ -396,6 +423,7 @@ async function executeSendMessage(
         flow_id: context.flowId,
         contact_id: context.contactId,
         event_type: "message_sent",
+        metadata: { via: isCommentContext ? "private_reply" : "dm" },
       });
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -749,6 +777,12 @@ async function executeCommentReply(
       path: { postId },
       body: { accountId: lateAccountId, message: text, commentId },
     });
+    // Record the reply on the comment_logs row claimed by the processor.
+    await supabase
+      .from("comment_logs")
+      .update({ reply_sent: true })
+      .eq("channel_id", context.channelId)
+      .eq("platform_comment_id", commentId);
   } catch (error) {
     console.error("Failed to post comment reply:", error);
   }

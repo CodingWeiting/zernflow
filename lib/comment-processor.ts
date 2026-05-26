@@ -111,6 +111,35 @@ export async function processCommentEvent(
     return NextResponse.json({ ok: true, matched: false });
   }
 
+  // ── Claim this comment to prevent double-processing by parallel cron ticks.
+  // The cron poller's pre-check is a soft optimisation; with a 5s interval
+  // and ~2-5s of processing per comment, two ticks can both see "unseen"
+  // and both call replyToInboxPost — resulting in a duplicate public reply.
+  // Inserting the log row FIRST under the unique (channel_id,
+  // platform_comment_id) index means the second tick fails with 23505
+  // (unique violation) and bails out cleanly.
+  const { error: claimError } = await supabase.from("comment_logs").insert({
+    ...baseLog,
+    matched_trigger_id: trigger.id,
+    dm_sent: false,
+    reply_sent: false,
+  });
+  if (claimError) {
+    const code = (claimError as { code?: string }).code;
+    if (code === "23505") {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "already_processing",
+      });
+    }
+    console.error("comment_logs claim error:", claimError);
+    return NextResponse.json(
+      { error: "Failed to claim comment" },
+      { status: 500 }
+    );
+  }
+
   // ── Upsert contact ────────────────────────────────────────────────────────
   const senderId = comment.author.id;
   const senderName = comment.author.name || comment.author.username || senderId;
@@ -183,6 +212,8 @@ export async function processCommentEvent(
   }
 
   // ── Execute the flow ──────────────────────────────────────────────────────
+  // Public replies are handled by the CommentReply flow node now, not inline
+  // here — that lets users gate the reply on conditions / delays / branches.
   let flowError: string | null = null;
   try {
     await executeFlow(supabase, {
@@ -202,6 +233,18 @@ export async function processCommentEvent(
         },
       },
       variables: {
+        // Canonical names (preferred going forward)
+        commenter: comment.author.username || senderName,
+        comment: comment.text,
+        // Atomic @-mention token. Includes the leading "@" AND a trailing
+        // space so users can't accidentally break the mention by deleting
+        // whitespace — Meta needs the trailing space to know where the
+        // handle ends. Empty if there's no username to mention.
+        mention: comment.author.username
+          ? `@${comment.author.username} `
+          : "",
+        // Legacy aliases — kept so flows saved with the older variable names
+        // keep interpolating until explicitly migrated.
         comment_text: comment.text,
         comment_id: comment.id,
         commenter_name: senderName,
@@ -229,16 +272,17 @@ export async function processCommentEvent(
     },
   });
 
-  await supabase.from("comment_logs").upsert(
-    {
-      ...baseLog,
-      matched_trigger_id: trigger.id,
+  // Update the claimed row with final state. Note: reply_sent is updated
+  // separately by engine.executeCommentReply when the CommentReply node
+  // fires, so we don't touch it here (would race with the engine).
+  await supabase
+    .from("comment_logs")
+    .update({
       dm_sent: !flowError,
-      reply_sent: false,
       error: flowError,
-    },
-    { onConflict: "channel_id,platform_comment_id" }
-  );
+    })
+    .eq("channel_id", channel.id)
+    .eq("platform_comment_id", comment.id);
 
   return NextResponse.json({
     ok: true,

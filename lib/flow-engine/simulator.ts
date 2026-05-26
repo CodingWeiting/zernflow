@@ -306,15 +306,40 @@ export function simulateFlow(
         const tagName = (data.tagName as string) || "";
         const fieldSlug = (data.fieldSlug as string) || "";
         const fieldValue = (data.value as string) || "";
+        const text = (data.text as string) || "";
+
         let detail = actionType;
-        if (actionType === "addTag") detail = `Add tag: ${tagName}`;
-        else if (actionType === "removeTag") detail = `Remove tag: ${tagName}`;
-        else if (actionType === "setCustomField")
+        let prettyLabel = actionType;
+
+        if (actionType === "addTag") {
+          detail = `Add tag: ${tagName}`;
+          prettyLabel = "Add Tag";
+        } else if (actionType === "removeTag") {
+          detail = `Remove tag: ${tagName}`;
+          prettyLabel = "Remove Tag";
+        } else if (actionType === "setCustomField") {
           detail = `Set ${fieldSlug} = ${fieldValue}`;
+          prettyLabel = "Set Field";
+        } else if (actionType === "commentReply") {
+          const interp = interpolate(text, variables);
+          detail = interp ? `Reply: "${interp}"` : "Reply (not configured)";
+          prettyLabel = "Comment Reply";
+        } else if (actionType === "privateReply") {
+          const interp = interpolate(text, variables);
+          detail = interp ? `DM: "${interp}"` : "DM (not configured)";
+          prettyLabel = "Private Reply";
+        } else if (actionType === "subscribe") {
+          detail = "Subscribe contact";
+          prettyLabel = "Subscribe";
+        } else if (actionType === "unsubscribe") {
+          detail = "Unsubscribe contact";
+          prettyLabel = "Unsubscribe";
+        }
+
         steps.push({
           nodeId: node.id,
-          nodeType: "action",
-          nodeLabel: label,
+          nodeType: actionType, // surface the semantic type so UI shows "commentReply" not "action"
+          nodeLabel: label === "action" ? prettyLabel : label,
           result: { type: "action", actionType, detail },
         });
         break;
